@@ -40,6 +40,17 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toStr
 const money = (n) => `$${Number(n || 0).toLocaleString("es-AR", { minimumFractionDigits: 0 })}`;
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
+// --- Roles de acceso (Supabase Auth) ---
+// "anon" = sin sesión · "cliente" = cuenta creada en la app · "admin" / "cadete" = rol en user_metadata
+const detectarRol = (user) => {
+  if (!user) return "anon";
+  const rol = user.user_metadata?.rol;
+  return rol === "admin" || rol === "cadete" ? rol : "cliente";
+};
+// El email de login de cada cadete se deriva de su id (determinístico, no expuesto al público)
+const emailCadete = (id) => `c.${id}@anda.cadete`;
+const cadeteIdDeSesion = (user) => user?.user_metadata?.cadete_id || null;
+
 const VAPID_PUBLIC_KEY = "BBpIGdRk16SWgB2sqnv4VSbHPLZa3jI-iuYRCoZm0kqmSWE4pMFAYZXQuGXBBvVGRr3iVeqWUAMu66a-rv9iXew";
 
 function urlBase64ToUint8Array(base64String) {
@@ -65,11 +76,12 @@ async function suscribirPush(role, refId) {
       });
     }
     const json = sub.toJSON();
+    const { data: { user } } = await supabase.auth.getUser();
     await supabase.from("push_subscriptions").upsert({
       endpoint: json.endpoint,
       p256dh: json.keys.p256dh,
       auth: json.keys.auth,
-      role, ref_id: refId || null,
+      role, ref_id: refId || null, user_id: user?.id || null,
     }, { onConflict: "endpoint" });
     return { ok: true };
   } catch (e) {
@@ -174,8 +186,10 @@ function useStorage() {
   const [locales, setLocales] = useState([]);
   const [productos, setProductos] = useState([]);
   const [pedidoItems, setPedidoItems] = useState([]);
-  const [config, setConfig] = useState({ tarifaDefault: 1500, comisionDefault: 800, adminPassword: "admin123" });
+  const [config, setConfig] = useState({ tarifaDefault: 1500, comisionDefault: 800, adminPassword: "" });
   const [loaded, setLoaded] = useState(false);
+  const [rol, setRol] = useState("anon");
+  const [sessionUser, setSessionUser] = useState(null);
   const pedidosRef = useRef([]);
   const cadetesRef = useRef([]);
   const localesRef = useRef([]);
@@ -185,14 +199,34 @@ function useStorage() {
   useEffect(() => { localesRef.current = locales; }, [locales]);
   useEffect(() => { productosRef.current = productos; }, [productos]);
 
+  // Observa la sesión de Supabase Auth: cada cambio de rol recarga los datos que le corresponden
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      const u = data.session?.user || null;
+      setSessionUser(u);
+      setRol(detectarRol(u));
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
+      const u = s?.user || null;
+      setSessionUser(u);
+      setRol(detectarRol(u));
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
   const fetchPedidos = useCallback(async () => {
-    const { data, error } = await supabase.from("pedidos").select("*").order("creado_en", { ascending: false });
+    if (rol === "anon") return;
+    let q = supabase.from("pedidos").select("*").order("creado_en", { ascending: false });
+    if (rol === "cliente" && sessionUser) q = q.eq("cliente_id", sessionUser.id);
+    const { data, error } = await q;
     if (!error && data) setPedidos(data.map(rowToPedido));
-  }, []);
+  }, [rol, sessionUser]);
   const fetchCadetes = useCallback(async () => {
-    const { data, error } = await supabase.from("cadetes").select("*").order("nombre");
+    // Anónimos y clientes solo ven el listado público (id, nombre) de cadetes activos
+    const tabla = rol === "admin" ? "cadetes" : "cadetes_publico";
+    const { data, error } = await supabase.from(tabla).select("*").order("nombre");
     if (!error && data) setCadetes(data.map(rowToCadete));
-  }, []);
+  }, [rol]);
   const fetchLocales = useCallback(async () => {
     const { data, error } = await supabase.from("locales").select("*").order("orden");
     if (!error && data) setLocales(data.map(rowToLocal));
@@ -202,20 +236,28 @@ function useStorage() {
     if (!error && data) setProductos(data.map(rowToProducto));
   }, []);
   const fetchPedidoItems = useCallback(async () => {
+    if (rol === "anon") return;
     const { data, error } = await supabase.from("pedido_items").select("*");
     if (!error && data) setPedidoItems(data.map(rowToItem));
-  }, []);
+  }, [rol]);
   const fetchConfig = useCallback(async () => {
-    const { data, error } = await supabase.from("config").select("*").eq("id", 1).single();
-    if (!error && data) setConfig(rowToConfig(data));
-  }, []);
+    if (rol === "admin") {
+      const { data, error } = await supabase.from("config").select("*").eq("id", 1).single();
+      if (!error && data) setConfig(rowToConfig(data));
+    } else {
+      // El resto solo lee tarifas públicas, nunca la contraseña de admin
+      const { data, error } = await supabase.from("v_config_public").select("*").eq("id", 1).single();
+      if (!error && data) setConfig({ tarifaDefault: Number(data.tarifa_default), comisionDefault: Number(data.comision_default), adminPassword: "" });
+    }
+  }, [rol]);
 
   useEffect(() => {
     (async () => {
+      setLoaded(false);
       await Promise.all([fetchPedidos(), fetchCadetes(), fetchLocales(), fetchProductos(), fetchPedidoItems(), fetchConfig()]);
       setLoaded(true);
     })();
-  }, [fetchPedidos, fetchCadetes, fetchLocales, fetchProductos, fetchPedidoItems, fetchConfig]);
+  }, [fetchPedidos, fetchCadetes, fetchLocales, fetchProductos, fetchPedidoItems, fetchConfig, rol]);
 
   useEffect(() => {
     const channel = supabase
@@ -279,10 +321,35 @@ function useStorage() {
     } catch (e) { console.error("Error creando pedido con carrito", e); }
   }, []);
 
+  // Actualización puntual de un pedido (cadete: tomar / avanzar / GPS) sin pisar el resto
+  const actualizarPedido = useCallback(async (id, cambios) => {
+    const row = {};
+    if ("estado" in cambios) row.estado = cambios.estado;
+    if ("entregadoEn" in cambios) row.entregado_en = cambios.entregadoEn ? new Date(cambios.entregadoEn).toISOString() : null;
+    if ("cadeteId" in cambios) row.cadete_id = cambios.cadeteId || null;
+    if ("ubicacion" in cambios) {
+      row.ubicacion_lat = cambios.ubicacion?.lat ?? null;
+      row.ubicacion_lng = cambios.ubicacion?.lng ?? null;
+      row.ubicacion_ts = cambios.ubicacion?.ts ? new Date(cambios.ubicacion.ts).toISOString() : null;
+    }
+    if ("tarifaCliente" in cambios) row.tarifa_cliente = cambios.tarifaCliente;
+    if ("tarifaEnvio" in cambios) row.tarifa_envio = cambios.tarifaEnvio ?? null;
+    setPedidos((prev) => prev.map((p) => p.id === id ? { ...p, ...cambios } : p));
+    try { await supabase.from("pedidos").update(row).eq("id", id); }
+    catch (e) { console.error("Error actualizando pedido", e); }
+  }, []);
+
+  // Alta directa de un pedido del cliente (sin reescribir el resto del listado)
+  const crearPedidoDirecto = useCallback(async (pedido) => {
+    setPedidos([pedido, ...pedidosRef.current]);
+    try { await supabase.from("pedidos").insert(pedidoToRow(pedido)); }
+    catch (e) { console.error("Error creando pedido", e); }
+  }, []);
+
   return {
     pedidos, savePedidos, cadetes, saveCadetes, locales, saveLocales,
-    productos, saveProductos, pedidoItems, crearPedidoConCarrito,
-    config, saveConfig, loaded,
+    productos, saveProductos, pedidoItems, crearPedidoConCarrito, crearPedidoDirecto,
+    config, saveConfig, actualizarPedido, rol, sessionUser, loaded,
   };
 }
 
@@ -1098,7 +1165,7 @@ function TabReportes({ pedidos, cadetes }) {
   );
 }
 
-function AdminApp({ pedidos, savePedidos, cadetes, saveCadetes, locales, saveLocales, productos, saveProductos, pedidoItems, config, saveConfig, onBack }) {
+function AdminApp({ pedidos, savePedidos, cadetes, saveCadetes, locales, saveLocales, productos, saveProductos, pedidoItems, config, saveConfig, onSalir }) {
   const [tab, setTab] = useState("pedidos");
   const isMobile = useIsMobile();
   const counts = {
@@ -1110,10 +1177,10 @@ function AdminApp({ pedidos, savePedidos, cadetes, saveCadetes, locales, saveLoc
       <Sidebar tab={tab} setTab={setTab} counts={counts} />
       <div style={{ flex: 1, padding: isMobile ? "18px 14px 78px" : "28px 32px", overflowX: "auto", minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <button onClick={onBack} style={{
+          <button onClick={onSalir} style={{
             background: "none", border: "none", color: COLORS.muted, cursor: "pointer",
             fontFamily: "'Inter', sans-serif", fontSize: 12, padding: 0,
-          }}>&larr; Salir del panel</button>
+          }}>&larr; Cerrar sesión</button>
           <BotonNotificaciones role="admin" />
         </div>
         {tab === "pedidos" && <TabPedidos pedidos={pedidos} cadetes={cadetes} config={config} savePedidos={savePedidos} pedidoItems={pedidoItems} isMobile={isMobile} />}
@@ -1336,7 +1403,7 @@ function Stepper({ estado }) {
   );
 }
 
-function VistaCliente({ cadetes, config, pedidos, savePedidos, locales, productos, pedidoItems, crearPedidoConCarrito, onBack, modoAuthInicial }) {
+function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, productos, pedidoItems, crearPedidoConCarrito, onBack, modoAuthInicial }) {
   const [session, setSession] = useState(undefined); // undefined = cargando, null = sin sesión
   const [perfil, setPerfil] = useState(null);
   const [authModo, setAuthModo] = useState(modoAuthInicial || "login");
@@ -1583,7 +1650,7 @@ function VistaCliente({ cadetes, config, pedidos, savePedidos, locales, producto
     if (conCarrito) {
       crearPedidoConCarrito(pedido, itemsCarrito);
     } else {
-      savePedidos([pedido, ...pedidos]);
+      crearPedidoDirecto(pedido);
     }
     notificar("admin", null, "Nuevo pedido", `${pedido.cliente} — ${pedido.direccion}`, "/");
     setEnviadoId(pedidoId);
@@ -1922,31 +1989,49 @@ function timeAgo(ts) {
   return `hace ${Math.floor(m / 60)} h`;
 }
 
-function VistaCadete({ cadetes, pedidos, savePedidos, onBack }) {
+function VistaCadete({ cadetes, pedidos, actualizarPedido, onBack }) {
   const [cadeteId, setCadeteId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [autenticado, setAutenticado] = useState(false);
+  const [cargando, setCargando] = useState(false);
   const [trackingError, setTrackingError] = useState("");
   const [chatAbiertoId, setChatAbiertoId] = useState(null);
   const cadete = cadetes.find((c) => c.id === cadeteId);
-  const pedidosRef = React.useRef(pedidos);
   const lastSentRef = React.useRef(0);
-  useEffect(() => { pedidosRef.current = pedidos; }, [pedidos]);
+
+  // Sesión de Supabase Auth: un cadete logueado entra directo a su tablero
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      const u = data.session?.user || null;
+      if (u?.user_metadata?.rol === "cadete") {
+        setCadeteId(u.user_metadata.cadete_id || "");
+        setAutenticado(true);
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_ev, s) => {
+      const u = s?.user || null;
+      if (u?.user_metadata?.rol === "cadete") {
+        setCadeteId(u.user_metadata.cadete_id || "");
+        setAutenticado(true);
+      } else {
+        setAutenticado(false);
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   const advance = (id) => {
-    savePedidos(pedidos.map((p) => p.id === id ? {
-      ...p, estado: nextEstado[p.estado], entregadoEn: nextEstado[p.estado] === "entregado" ? Date.now() : p.entregadoEn,
-    } : p));
     const p = pedidos.find((x) => x.id === id);
+    const sig = nextEstado[p.estado];
+    actualizarPedido(id, { estado: sig, entregadoEn: sig === "entregado" ? Date.now() : p.entregadoEn });
     if (p?.clienteId) {
-      const sig = nextEstado[p.estado];
       if (sig === "en_camino") notificar("cliente", p.clienteId, "Tu cadete está en camino", `Tu pedido a ${p.direccion} está en camino.`, "/");
       if (sig === "entregado") notificar("cliente", p.clienteId, "Pedido entregado", `Tu pedido a ${p.direccion} fue entregado.`, "/");
     }
   };
 
-  const tomar = (id) => savePedidos(pedidos.map((p) => p.id === id ? { ...p, cadeteId, estado: "asignado" } : p));
+  const tomar = (id) => actualizarPedido(id, { cadeteId, estado: "asignado" });
 
   const enCaminoIds = React.useMemo(
     () => pedidos.filter((p) => p.cadeteId === cadeteId && p.estado === "en_camino").map((p) => p.id),
@@ -1963,8 +2048,7 @@ function VistaCadete({ cadetes, pedidos, savePedidos, onBack }) {
         if (now - lastSentRef.current < 8000) return;
         lastSentRef.current = now;
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude, ts: now };
-        const next = pedidosRef.current.map((p) => enCaminoIds.includes(p.id) ? { ...p, ubicacion: coords } : p);
-        savePedidos(next);
+        for (const pid of enCaminoIds) actualizarPedido(pid, { ubicacion: coords });
       },
       () => setTrackingError("No pudimos acceder a tu ubicación. Activá el GPS y los permisos de ubicación."),
       { enableHighAccuracy: true, maximumAge: 5000 }
@@ -2004,9 +2088,15 @@ function VistaCadete({ cadetes, pedidos, savePedidos, onBack }) {
   }
 
   if (!autenticado) {
-    const intentar = () => {
-      if (password === cadete.password) { setAutenticado(true); setError(""); }
-      else setError("Contraseña incorrecta");
+    const intentar = async () => {
+      if (!password.trim()) { setError("Ingresá tu contraseña"); return; }
+      setCargando(true); setError("");
+      const { error } = await supabase.auth.signInWithPassword({ email: emailCadete(cadeteId), password });
+      setCargando(false);
+      if (error) {
+        const msg = (error.message || "").toLowerCase();
+        setError(msg.includes("invalid") || msg.includes("password") ? "Contraseña incorrecta" : "No pudimos iniciar sesión. Probá de nuevo.");
+      }
     };
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -2021,11 +2111,11 @@ function VistaCadete({ cadetes, pedidos, savePedidos, onBack }) {
             placeholder="Contraseña"
           />
           {error && <div style={{ color: COLORS.red, fontFamily: "'Inter', sans-serif", fontSize: 12, marginTop: 8 }}>{error}</div>}
-          <button onClick={intentar} style={{
+          <button onClick={intentar} disabled={cargando} style={{
             width: "100%", marginTop: 16, background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
             padding: "12px 0", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13,
-            letterSpacing: "0.03em", cursor: "pointer",
-          }}>INGRESAR</button>
+            letterSpacing: "0.03em", cursor: cargando ? "default" : "pointer", opacity: cargando ? 0.6 : 1,
+          }}>{cargando ? "INGRESANDO..." : "INGRESAR"}</button>
         </div>
       </div>
     );
@@ -2042,7 +2132,10 @@ function VistaCadete({ cadetes, pedidos, savePedidos, onBack }) {
         <BackLink onBack={() => { setCadeteId(""); setAutenticado(false); setPassword(""); }} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text }}>HOLA, {cadete.nombre.toUpperCase()}</div>
-          <BotonNotificaciones role="cadete" refId={cadeteId} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+            <button onClick={async () => { await supabase.auth.signOut(); setCadeteId(""); setPassword(""); }} style={{ background: "none", border: "none", color: COLORS.muted, fontFamily: "'Inter', sans-serif", fontSize: 12, cursor: "pointer" }}>Cerrar sesión</button>
+            <BotonNotificaciones role="cadete" refId={cadeteId} />
+          </div>
         </div>
         <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 24 }}>
           {mios.length} pendientes · {entregadosHoy.length} entregados hoy
@@ -2136,9 +2229,11 @@ function VistaCadete({ cadetes, pedidos, savePedidos, onBack }) {
   );
 }
 
-function AdminLogin({ config, onSuccess, onBack }) {
+function AdminLogin({ onSuccess, onBack }) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(false);
 
   const inputStyle = {
     width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.line}`,
@@ -2146,9 +2241,19 @@ function AdminLogin({ config, onSuccess, onBack }) {
     fontFamily: "'Inter', sans-serif", fontSize: 14, outline: "none", boxSizing: "border-box",
   };
 
-  const intentar = () => {
-    if (password === config.adminPassword) onSuccess();
-    else setError("Contraseña incorrecta");
+  const intentar = async () => {
+    if (!email.trim() || !password.trim()) { setError("Completá email y contraseña"); return; }
+    setCargando(true); setError("");
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) { setCargando(false); setError("Email o contraseña incorrectos"); return; }
+    if (data.user?.user_metadata?.rol !== "admin") {
+      await supabase.auth.signOut();
+      setCargando(false);
+      setError("Esta cuenta no tiene permisos de administración");
+      return;
+    }
+    setCargando(false);
+    onSuccess();
   };
 
   return (
@@ -2156,7 +2261,14 @@ function AdminLogin({ config, onSuccess, onBack }) {
       <div style={{ width: "100%", maxWidth: 320 }}>
         <BackLink onBack={onBack} />
         <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.text, marginBottom: 4 }}>PANEL DE ADMINISTRACIÓN</div>
-        <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Ingresá la contraseña</div>
+        <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Ingresá con tu cuenta de administrador</div>
+        <div style={{ marginBottom: 12 }}>
+          <input
+            type="email" style={inputStyle} value={email}
+            onChange={(e) => { setEmail(e.target.value); setError(""); }}
+            placeholder="Email"
+          />
+        </div>
         <input
           type="password" style={inputStyle} value={password} autoFocus
           onChange={(e) => { setPassword(e.target.value); setError(""); }}
@@ -2164,11 +2276,11 @@ function AdminLogin({ config, onSuccess, onBack }) {
           placeholder="Contraseña"
         />
         {error && <div style={{ color: COLORS.red, fontFamily: "'Inter', sans-serif", fontSize: 12, marginTop: 8 }}>{error}</div>}
-        <button onClick={intentar} style={{
+        <button onClick={intentar} disabled={cargando} style={{
           width: "100%", marginTop: 16, background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
           padding: "12px 0", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13,
-          letterSpacing: "0.03em", cursor: "pointer",
-        }}>INGRESAR</button>
+          letterSpacing: "0.03em", cursor: cargando ? "default" : "pointer", opacity: cargando ? 0.6 : 1,
+        }}>{cargando ? "INGRESANDO..." : "INGRESAR"}</button>
       </div>
     </div>
   );
@@ -2182,8 +2294,8 @@ export default function CadeteriaApp() {
   viewRef.current = view;
   const {
     pedidos, savePedidos, cadetes, saveCadetes, locales, saveLocales,
-    productos, saveProductos, pedidoItems, crearPedidoConCarrito,
-    config, saveConfig, loaded,
+    productos, saveProductos, pedidoItems, crearPedidoConCarrito, crearPedidoDirecto,
+    config, saveConfig, actualizarPedido, loaded,
   } = useStorage();
 
   // Integra el botón "atrás" físico/gesto del celular con la navegación interna,
@@ -2219,13 +2331,13 @@ export default function CadeteriaApp() {
     <div style={{ background: COLORS.bg, minHeight: "100vh" }}>
       <style>{FONTS}</style>
       {view === "landing" && <Landing setView={irA} onCrearCuenta={() => { setModoAuthCliente("signup"); irA("cliente"); }} />}
-      {view === "cliente" && <VistaCliente cadetes={cadetes} config={config} pedidos={pedidos} savePedidos={savePedidos} locales={locales} productos={productos} pedidoItems={pedidoItems} crearPedidoConCarrito={crearPedidoConCarrito} onBack={volver} modoAuthInicial={modoAuthCliente} />}
-      {view === "cadete" && <VistaCadete cadetes={cadetes} pedidos={pedidos} savePedidos={savePedidos} onBack={volver} />}
+      {view === "cliente" && <VistaCliente cadetes={cadetes} config={config} pedidos={pedidos} crearPedidoDirecto={crearPedidoDirecto} locales={locales} productos={productos} pedidoItems={pedidoItems} crearPedidoConCarrito={crearPedidoConCarrito} onBack={volver} modoAuthInicial={modoAuthCliente} />}
+      {view === "cadete" && <VistaCadete cadetes={cadetes} pedidos={pedidos} actualizarPedido={actualizarPedido} onBack={volver} />}
       {view === "admin" && !adminAuth && (
-        <AdminLogin config={config} onSuccess={() => setAdminAuth(true)} onBack={volver} />
+        <AdminLogin onSuccess={() => setAdminAuth(true)} onBack={volver} />
       )}
       {view === "admin" && adminAuth && (
-        <AdminApp pedidos={pedidos} savePedidos={savePedidos} cadetes={cadetes} saveCadetes={saveCadetes} locales={locales} saveLocales={saveLocales} productos={productos} saveProductos={saveProductos} pedidoItems={pedidoItems} config={config} saveConfig={saveConfig} onBack={volver} />
+        <AdminApp pedidos={pedidos} savePedidos={savePedidos} cadetes={cadetes} saveCadetes={saveCadetes} locales={locales} saveLocales={saveLocales} productos={productos} saveProductos={saveProductos} pedidoItems={pedidoItems} config={config} saveConfig={saveConfig} onSalir={() => { supabase.auth.signOut(); setAdminAuth(false); volver(); }} />
       )}
     </div>
   );
