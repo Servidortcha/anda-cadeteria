@@ -1,4 +1,4 @@
-const CACHE = "anda-v2";
+const CACHE = "anda-v3";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -13,6 +13,15 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // El HTML siempre va a la red: así la app nunca queda atrapada en una versión vieja.
+  // Si no hay red, cae a la última copia cacheada para que siga funcionando.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+  // Assets (JS/CSS/IMG con hash): primera red, si falla caché.
   event.respondWith(
     fetch(event.request)
       .then((res) => {
