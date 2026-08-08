@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   Package, Users, DollarSign, BarChart3, Plus, X, Check,
   Clock, Truck, Trash2, MapPin, Phone, ChevronRight, Route as RouteIcon,
-  Ban, Pencil, MessageCircle, Send, Bell, MoreHorizontal
+  Ban, Pencil, MessageCircle, Send, Bell, MoreHorizontal,
+  ShoppingCart, User, History, LogOut, ChevronDown, Minus
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -1410,7 +1411,6 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
   const [authForm, setAuthForm] = useState({ nombre: "", email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [avisoVerificacion, setAvisoVerificacion] = useState(false);
-  const [modo, setModo] = useState("nuevo");
   const [form, setForm] = useState({ direccionRetiro: "", direccion: "", nota: "" });
   const [enviadoId, setEnviadoId] = useState(null);
   const [perfilForm, setPerfilForm] = useState(null);
@@ -1420,6 +1420,11 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
   const [carrito, setCarrito] = useState({}); // { [productoId]: { productoId, nombre, precio, cantidad } }
   const [checkout, setCheckout] = useState(false);
   const [chatAbierto, setChatAbierto] = useState(false);
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const [overlay, setOverlay] = useState(null); // null | "perfil" | "mis"
+  const [carritoAbierto, setCarritoAbierto] = useState(false); // bottom sheet móvil
+  const isMobile = useIsMobile();
+  const localesRef = useRef(null);
 
   const itemsCarrito = Object.values(carrito);
   const totalCarrito = itemsCarrito.reduce((s, it) => s + it.precio * it.cantidad, 0);
@@ -1441,6 +1446,78 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
   };
   const elegirLocal = (local) => { setLocalElegido(local); setCarrito({}); setCheckout(false); };
   const volverALocales = () => { setLocalElegido(null); setCarrito({}); setCheckout(false); };
+
+  const carritoBoton = {
+    width: 28, height: 28, borderRadius: 7, background: COLORS.panel2, color: COLORS.text,
+    border: `1px solid ${COLORS.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+  };
+  const menuItem = {
+    display: "flex", alignItems: "center", gap: 10, width: "100%", background: "none", border: "none",
+    color: COLORS.text, fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 12,
+    letterSpacing: "0.04em", padding: "10px 12px", cursor: "pointer", textAlign: "left", borderRadius: 6,
+  };
+  const volverLink = {
+    background: "none", border: "none", color: COLORS.muted, cursor: "pointer",
+    fontFamily: "'Inter', sans-serif", fontSize: 12, marginBottom: 14, padding: 0,
+    display: "flex", alignItems: "center", gap: 4,
+  };
+
+  const carritoPanel = (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px", borderBottom: `1px solid ${COLORS.line}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 8, background: `${COLORS.accent}1A`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ShoppingCart size={18} color={COLORS.accent} />
+          </div>
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 17, color: COLORS.text, letterSpacing: "0.02em" }}>
+            TU PEDIDO
+          </div>
+        </div>
+        {isMobile && (
+          <button onClick={() => setCarritoAbierto(false)} style={{ background: "none", border: "none", color: COLORS.muted, cursor: "pointer", padding: 6 }}>
+            <X size={20} />
+          </button>
+        )}
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "8px 20px" }}>
+        {itemsCarrito.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 8px" }}>
+            <ShoppingCart size={30} color={COLORS.grey} style={{ marginBottom: 10 }} />
+            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: COLORS.muted, marginBottom: 4 }}>Tu carrito está vacío</div>
+            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.grey }}>Sumá productos del menú</div>
+          </div>
+        ) : (
+          itemsCarrito.map((it) => (
+            <div key={it.productoId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 0", borderBottom: `1px solid ${COLORS.line}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: COLORS.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.nombre}</div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: COLORS.accent, marginTop: 2 }}>{money(it.precio)}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => quitar(it.productoId)} style={carritoBoton}>{it.cantidad > 1 ? <Minus size={14} /> : <Trash2 size={14} />}</button>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: COLORS.text, minWidth: 16, textAlign: "center" }}>{it.cantidad}</span>
+                <button onClick={() => agregar(productos.find((p) => p.id === it.productoId))} style={carritoBoton}><Plus size={14} /></button>
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: COLORS.text, minWidth: 54, textAlign: "right" }}>{money(it.precio * it.cantidad)}</div>
+            </div>
+          ))
+        )}
+      </div>
+      {!checkout && (
+        <div style={{ padding: "16px 20px", borderTop: `1px solid ${COLORS.line}`, background: COLORS.panel }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted }}>{cantidadCarrito} {cantidadCarrito === 1 ? "producto" : "productos"}</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, color: COLORS.accentYellow, fontWeight: 700 }}>{money(totalCarrito)}</span>
+          </div>
+          <button onClick={() => { setCheckout(true); setCarritoAbierto(false); }} style={{
+            width: "100%", background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 8,
+            padding: "13px 0", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13,
+            letterSpacing: "0.04em", cursor: "pointer",
+          }}>HACER PEDIDO</button>
+        </div>
+      )}
+    </div>
+  );
 
   useEffect(() => {
     if (perfil) setPerfilForm({
@@ -1503,7 +1580,6 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
 
   const cerrarSesion = async () => {
     await supabase.auth.signOut();
-    setModo("nuevo");
   };
 
   const loginSocial = async (provider) => {
@@ -1727,103 +1803,168 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ width: "100%", maxWidth: 400 }}>
-        <BackLink onBack={onBack} />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text }}>HOLA, {perfil.nombre.split(" ")[0].toUpperCase()}</div>
-          <button onClick={cerrarSesion} style={{ background: "none", border: "none", color: COLORS.muted, fontFamily: "'Inter', sans-serif", fontSize: 12, cursor: "pointer" }}>Cerrar sesión</button>
-        </div>
-        <div style={{ marginBottom: 10 }}><BotonNotificaciones role="cliente" refId={perfil.id} /></div>
-        <div style={{ display: "flex", gap: 16, marginBottom: 22, marginTop: 10 }}>
-          <button onClick={() => setModo("nuevo")} style={{
-            background: "none", border: "none", cursor: "pointer", padding: 0,
-            fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 12, letterSpacing: "0.03em",
-            color: modo === "nuevo" ? COLORS.accent : COLORS.muted, borderBottom: modo === "nuevo" ? `2px solid ${COLORS.accent}` : "2px solid transparent", paddingBottom: 4,
-          }}>NUEVO PEDIDO</button>
-          <button onClick={() => setModo("mis")} style={{
-            background: "none", border: "none", cursor: "pointer", padding: 0,
-            fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 12, letterSpacing: "0.03em",
-            color: modo === "mis" ? COLORS.accent : COLORS.muted, borderBottom: modo === "mis" ? `2px solid ${COLORS.accent}` : "2px solid transparent", paddingBottom: 4,
-          }}>MIS PEDIDOS ({misPedidos.length})</button>
-          <button onClick={() => setModo("perfil")} style={{
-            background: "none", border: "none", cursor: "pointer", padding: 0,
-            fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 12, letterSpacing: "0.03em",
-            color: modo === "perfil" ? COLORS.accent : COLORS.muted, borderBottom: modo === "perfil" ? `2px solid ${COLORS.accent}` : "2px solid transparent", paddingBottom: 4,
-          }}>MI PERFIL</button>
-        </div>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: COLORS.bg }}>
+      {/* Barra superior */}
+      <div style={{
+        position: "sticky", top: 0, zIndex: 30, background: COLORS.panel,
+        borderBottom: `1px solid ${COLORS.line}`,
+      }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 20px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {onBack && (
+              <button onClick={onBack} style={{ background: "none", border: "none", color: COLORS.muted, cursor: "pointer", padding: 6, display: "flex", alignItems: "center" }}>
+                <ChevronRight size={18} style={{ transform: "rotate(180deg)" }} />
+              </button>
+            )}
+            <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.text, letterSpacing: "0.05em" }}>
+              ANDÁ<span style={{ color: COLORS.accent }}>.</span>
+            </div>
+          </div>
 
-        {modo === "perfil" ? (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 22 }}>
-              <div style={{
-                width: 72, height: 72, borderRadius: 36, overflow: "hidden", flexShrink: 0,
-                background: COLORS.panel2, border: `1px solid ${COLORS.line}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {!isMobile && <BotonNotificaciones role="cliente" refId={perfil.id} />}
+            {isMobile && cantidadCarrito > 0 && !checkout && (
+              <button onClick={() => setCarritoAbierto(true)} style={{
+                position: "relative", background: "transparent", border: "none", color: COLORS.text, cursor: "pointer", padding: 6,
               }}>
-                {perfil.foto_url
-                  ? <img src={perfil.foto_url} alt="Foto de perfil" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  : <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 24, color: COLORS.muted }}>{perfil.nombre[0]?.toUpperCase()}</span>}
-              </div>
-              <div>
-                <label style={{
-                  display: "inline-block", background: "transparent", color: COLORS.accent,
-                  border: `1px solid ${COLORS.accent}66`, borderRadius: 6, padding: "7px 14px",
-                  fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                <ShoppingCart size={20} />
+                <span style={{
+                  position: "absolute", top: 0, right: 0, minWidth: 16, height: 16, borderRadius: 8, background: COLORS.accent,
+                  color: "#16181B", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px",
+                }}>{cantidadCarrito}</span>
+              </button>
+            )}
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setMenuAbierto(!menuAbierto)} style={{
+                display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 4,
+              }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: 17, overflow: "hidden", flexShrink: 0,
+                  background: COLORS.panel2, border: `1px solid ${COLORS.accent}55`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
                 }}>
-                  CAMBIAR FOTO
-                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => subirFoto(e.target.files?.[0])} />
-                </label>
-              </div>
+                  {perfil.foto_url
+                    ? <img src={perfil.foto_url} alt="Foto de perfil" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 15, color: COLORS.accent }}>{perfil.nombre[0]?.toUpperCase()}</span>}
+                </div>
+                <ChevronDown size={14} color={menuAbierto ? COLORS.accent : COLORS.muted} style={{ transform: menuAbierto ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+              </button>
+
+              {menuAbierto && <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setMenuAbierto(false)} />}
+              {menuAbierto && (
+                <div style={{
+                  position: "absolute", top: 46, right: 0, zIndex: 61, width: 230,
+                  background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 10, boxShadow: "0 12px 32px rgba(0,0,0,.45)",
+                  overflow: "hidden", padding: 6,
+                }}>
+                  <div style={{ padding: "10px 12px 8px", borderBottom: `1px solid ${COLORS.line}`, marginBottom: 4 }}>
+                    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600, color: COLORS.text }}>{perfil.nombre}</div>
+                    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted }}>{perfil.email}</div>
+                  </div>
+                  <button onClick={() => { setOverlay("perfil"); setMenuAbierto(false); }} style={menuItem}>
+                    <User size={15} color={COLORS.accent} /> MI PERFIL
+                  </button>
+                  <button onClick={() => { setOverlay("mis"); setMenuAbierto(false); }} style={menuItem}>
+                    <History size={15} color={COLORS.accent} /> MIS PEDIDOS
+                    {misPedidos.length > 0 && <span style={{ marginLeft: "auto", fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: COLORS.muted }}>{misPedidos.length}</span>}
+                  </button>
+                  {isMobile && <div style={{ padding: "8px 12px" }}><BotonNotificaciones role="cliente" refId={perfil.id} style={{ width: "100%", justifyContent: "center" }} /></div>}
+                  <button onClick={cerrarSesion} style={{ ...menuItem, color: COLORS.red, borderTop: `1px solid ${COLORS.line}`, marginTop: 4, borderRadius: 0 }}>
+                    <LogOut size={15} color={COLORS.red} /> CERRAR SESIÓN
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        {/* Contenido principal */}
+        <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "22px 20px 130px" }}>
+          <div style={{ maxWidth: 560, margin: "0 auto" }}>
+            <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text, marginBottom: 4 }}>
+              HOLA, {perfil.nombre.split(" ")[0].toUpperCase()}
+            </div>
+            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 22 }}>
+              {overlay === "perfil" ? "Tus datos y preferencias" : overlay === "mis" ? "Seguí tus envíos" : localElegido ? `Menú de ${localElegido.nombre}` : "Elegí un local para empezar"}
             </div>
 
-            {perfilForm && (
-              <>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={label}>Nombre</label>
-                  <input style={inputStyle} value={perfilForm.nombre} onChange={(e) => setPerfilForm({ ...perfilForm, nombre: e.target.value })} />
+            {overlay === "perfil" ? (
+              <div>
+                <button onClick={() => { setOverlay(null); localesRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} style={volverLink}>
+                  &larr; Volver al menú
+                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 22 }}>
+                  <div style={{
+                    width: 72, height: 72, borderRadius: 36, overflow: "hidden", flexShrink: 0,
+                    background: COLORS.panel2, border: `1px solid ${COLORS.line}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {perfil.foto_url
+                      ? <img src={perfil.foto_url} alt="Foto de perfil" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <span style={{ fontFamily: "'Oswald', sans-serif", fontSize: 24, color: COLORS.muted }}>{perfil.nombre[0]?.toUpperCase()}</span>}
+                  </div>
+                  <div>
+                    <label style={{
+                      display: "inline-block", background: "transparent", color: COLORS.accent,
+                      border: `1px solid ${COLORS.accent}66`, borderRadius: 6, padding: "7px 14px",
+                      fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    }}>
+                      CAMBIAR FOTO
+                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => subirFoto(e.target.files?.[0])} />
+                    </label>
+                  </div>
                 </div>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={label}>Fecha de nacimiento</label>
-                  <input type="date" style={inputStyle} value={perfilForm.fecha_nacimiento} onChange={(e) => setPerfilForm({ ...perfilForm, fecha_nacimiento: e.target.value })} />
-                </div>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={label}>Teléfono</label>
-                  <input style={inputStyle} value={perfilForm.telefono} onChange={(e) => setPerfilForm({ ...perfilForm, telefono: e.target.value })} placeholder="Tu número de teléfono" />
-                </div>
-                <div style={{ marginBottom: 22 }}>
-                  <label style={label}>Dirección habitual</label>
-                  <input style={inputStyle} value={perfilForm.direccion} onChange={(e) => setPerfilForm({ ...perfilForm, direccion: e.target.value })} placeholder="Para no escribirla cada vez" />
-                </div>
-                <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 14 }}>Email: {perfil.email}</div>
-                {perfilMsg && <div style={{ color: perfilMsg.includes("✓") ? COLORS.green : COLORS.red, fontFamily: "'Inter', sans-serif", fontSize: 12, marginBottom: 10 }}>{perfilMsg}</div>}
-                <button onClick={guardarPerfil} disabled={perfilGuardando} style={{
-                  background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
-                  padding: "12px 20px", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13,
-                  letterSpacing: "0.03em", cursor: perfilGuardando ? "default" : "pointer", opacity: perfilGuardando ? 0.6 : 1,
-                }}>{perfilGuardando ? "GUARDANDO..." : "GUARDAR CAMBIOS"}</button>
-              </>
-            )}
-          </div>
-        ) : modo === "mis" ? (
-          <div>
-            {misPedidos.length === 0 && <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13 }}>Todavía no hiciste ningún pedido.</div>}
-            {misPedidos.map((p) => (
-              <div key={p.id} style={{ background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 16, marginBottom: 12, cursor: "pointer" }} onClick={() => setEnviadoId(p.id)}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text }}>{p.direccion}</div>
-                  <Badge estado={p.estado} />
-                </div>
-                <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted }}>
-                  {new Date(p.creadoEn).toLocaleDateString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-                </div>
+
+                {perfilForm && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={label}>Nombre</label>
+                      <input style={inputStyle} value={perfilForm.nombre} onChange={(e) => setPerfilForm({ ...perfilForm, nombre: e.target.value })} />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={label}>Fecha de nacimiento</label>
+                      <input type="date" style={inputStyle} value={perfilForm.fecha_nacimiento} onChange={(e) => setPerfilForm({ ...perfilForm, fecha_nacimiento: e.target.value })} />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={label}>Teléfono</label>
+                      <input style={inputStyle} value={perfilForm.telefono} onChange={(e) => setPerfilForm({ ...perfilForm, telefono: e.target.value })} placeholder="Tu número de teléfono" />
+                    </div>
+                    <div style={{ marginBottom: 22 }}>
+                      <label style={label}>Dirección habitual</label>
+                      <input style={inputStyle} value={perfilForm.direccion} onChange={(e) => setPerfilForm({ ...perfilForm, direccion: e.target.value })} placeholder="Para no escribirla cada vez" />
+                    </div>
+                    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 14 }}>Email: {perfil.email}</div>
+                    {perfilMsg && <div style={{ color: perfilMsg.includes("✓") ? COLORS.green : COLORS.red, fontFamily: "'Inter', sans-serif", fontSize: 12, marginBottom: 10 }}>{perfilMsg}</div>}
+                    <button onClick={guardarPerfil} disabled={perfilGuardando} style={{
+                      background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
+                      padding: "12px 20px", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13,
+                      letterSpacing: "0.03em", cursor: perfilGuardando ? "default" : "pointer", opacity: perfilGuardando ? 0.6 : 1,
+                    }}>{perfilGuardando ? "GUARDANDO..." : "GUARDAR CAMBIOS"}</button>
+                  </>
+                )}
               </div>
-            ))}
-          </div>
-        ) : (
-          <>
-            {!localElegido ? (
-              <>
+            ) : overlay === "mis" ? (
+              <div>
+                <button onClick={() => { setOverlay(null); localesRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }} style={volverLink}>
+                  &larr; Volver al menú
+                </button>
+                {misPedidos.length === 0 && <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13 }}>Todavía no hiciste ningún pedido.</div>}
+                {misPedidos.map((p) => (
+                  <div key={p.id} style={{ background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 16, marginBottom: 12, cursor: "pointer" }} onClick={() => setEnviadoId(p.id)}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text }}>{p.direccion}</div>
+                      <Badge estado={p.estado} />
+                    </div>
+                    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted }}>
+                      {new Date(p.creadoEn).toLocaleDateString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : !localElegido ? (
+              <div ref={localesRef}>
                 <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Elegí un local para pedir</div>
                 {locales && locales.filter((l) => l.activo).length > 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
@@ -1872,18 +2013,14 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
                     letterSpacing: "0.03em", cursor: "pointer",
                   }}>CONFIRMAR SIN CATÁLOGO</button>
                 </div>
-              </>
+              </div>
             ) : !checkout ? (
               <>
-                <button onClick={volverALocales} style={{
-                  background: "none", border: "none", color: COLORS.muted, cursor: "pointer",
-                  fontFamily: "'Inter', sans-serif", fontSize: 12, marginBottom: 14, padding: 0,
-                  display: "flex", alignItems: "center", gap: 4,
-                }}>&larr; Otro local</button>
+                <button onClick={volverALocales} style={volverLink}>&larr; Otro local</button>
                 <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, color: COLORS.text, marginBottom: 2 }}>{localElegido.nombre}</div>
                 <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>{localElegido.direccion}</div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: cantidadCarrito > 0 ? 90 : 20 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: isMobile ? 120 : 20 }}>
                   {productos.filter((p) => p.localId === localElegido.id && p.disponible).map((p) => {
                     const enCarrito = carrito[p.id]?.cantidad || 0;
                     return (
@@ -1919,31 +2056,10 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
                     <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13 }}>Este local todavía no tiene productos cargados.</div>
                   )}
                 </div>
-
-                {cantidadCarrito > 0 && (
-                  <div style={{
-                    position: "fixed", bottom: 0, left: 0, right: 0, background: COLORS.panel,
-                    borderTop: `1px solid ${COLORS.line}`, padding: 16, display: "flex", justifyContent: "center",
-                  }}>
-                    <div style={{ width: 400, maxWidth: "100%", display: "flex", alignItems: "center", gap: 12 }}>
-                      <div style={{ flex: 1, fontFamily: "'Inter', sans-serif", fontSize: 13, color: COLORS.text }}>
-                        {cantidadCarrito} {cantidadCarrito === 1 ? "producto" : "productos"} · <span style={{ fontFamily: "'JetBrains Mono', monospace", color: COLORS.accent, fontWeight: 700 }}>{money(totalCarrito)}</span>
-                      </div>
-                      <button onClick={() => setCheckout(true)} style={{
-                        background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
-                        padding: "11px 20px", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13, cursor: "pointer",
-                      }}>VER CARRITO</button>
-                    </div>
-                  </div>
-                )}
               </>
             ) : (
               <>
-                <button onClick={() => setCheckout(false)} style={{
-                  background: "none", border: "none", color: COLORS.muted, cursor: "pointer",
-                  fontFamily: "'Inter', sans-serif", fontSize: 12, marginBottom: 14, padding: 0,
-                  display: "flex", alignItems: "center", gap: 4,
-                }}>&larr; Seguir agregando</button>
+                <button onClick={() => setCheckout(false)} style={volverLink}>&larr; Seguir agregando</button>
                 <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, color: COLORS.text, marginBottom: 14 }}>TU PEDIDO</div>
                 <div style={{ background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 14, marginBottom: 18 }}>
                   {itemsCarrito.map((it) => (
@@ -1967,6 +2083,7 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
                   <label style={label}>Nota (opcional)</label>
                   <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60, fontFamily: "'Inter', sans-serif" }} value={form.nota} onChange={(e) => setForm({ ...form, nota: e.target.value })} placeholder="Ej: timbre roto, dejar en portería, referencia de piso, etc." />
                 </div>
+
                 <button onClick={submit} style={{
                   width: "100%", background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
                   padding: "13px 0", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14,
@@ -1974,9 +2091,55 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
                 }}>CONFIRMAR PEDIDO</button>
               </>
             )}
-          </>
+          </div>
+        </div>
+
+        {/* Carrito lateral (desktop) */}
+        {!isMobile && (
+          <div style={{
+            width: 360, flexShrink: 0, borderLeft: `1px solid ${COLORS.line}`, background: COLORS.panel,
+            display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
+          }}>
+            {carritoPanel}
+          </div>
         )}
       </div>
+
+      {/* Cartel de pedido + carrito en móvil */}
+      {isMobile && cantidadCarrito > 0 && !checkout && (
+        <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, background: COLORS.panel,
+          borderTop: `1px solid ${COLORS.line}`, padding: "12px 20px",
+          display: "flex", alignItems: "center", gap: 12,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 11, color: COLORS.muted, letterSpacing: "0.05em", marginBottom: 2 }}>
+              TU PEDIDO · {cantidadCarrito} {cantidadCarrito === 1 ? "PRODUCTO" : "PRODUCTOS"}
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, color: COLORS.accentYellow, fontWeight: 700 }}>{money(totalCarrito)}</div>
+          </div>
+          <button onClick={() => setCarritoAbierto(true)} style={{
+            background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 8,
+            padding: "12px 22px", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13,
+            letterSpacing: "0.04em", cursor: "pointer", whiteSpace: "nowrap",
+          }}>VER CARRITO</button>
+        </div>
+      )}
+
+      {/* Bottom sheet carrito (móvil) */}
+      {isMobile && carritoAbierto && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,.55)" }} onClick={() => setCarritoAbierto(false)} />
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100, background: COLORS.panel,
+            borderTop: `1px solid ${COLORS.line}`, borderTopLeftRadius: 16, borderTopRightRadius: 16,
+            maxHeight: "78vh", display: "flex", flexDirection: "column", overflow: "hidden",
+            boxShadow: "0 -12px 40px rgba(0,0,0,.5)",
+          }}>
+            {carritoPanel}
+          </div>
+        </>
+      )}
     </div>
   );
 }
