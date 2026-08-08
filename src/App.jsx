@@ -2453,6 +2453,12 @@ export default function CadeteriaApp() {
   const [view, setView] = useState("landing");
   const [adminAuth, setAdminAuth] = useState(false);
   const [modoAuthCliente, setModoAuthCliente] = useState("login");
+  // Si volvemos de un login social (Google), la URL trae los tokens en el hash:
+  // detectamos el retorno ANTES de que supabase-js limpie la URL y entramos
+  // directo a la pantalla de pedidos apenas la sesión esté lista.
+  const [oauthEntrante] = useState(() =>
+    typeof window !== "undefined" && /[?&#](access_token|id_token|type=oauth)=/.test(window.location.hash)
+  );
   const viewRef = useRef(view);
   viewRef.current = view;
   const {
@@ -2474,6 +2480,14 @@ export default function CadeteriaApp() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  // Retorno de login social: con sesión lista, entramos directo a la pantalla de cliente.
+  useEffect(() => {
+    if (oauthEntrante && sessionUser && rol === "cliente") {
+      setModoAuthCliente("login");
+      setView("cliente");
+    }
+  }, [oauthEntrante, sessionUser, rol]);
 
   const irA = (v) => {
     window.history.pushState({ andaView: v }, "", "");
