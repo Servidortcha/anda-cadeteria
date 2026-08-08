@@ -51,7 +51,7 @@ const detectarRol = (user) => {
 const emailCadete = (id) => `c.${id}@anda.cadete`;
 const cadeteIdDeSesion = (user) => user?.user_metadata?.cadete_id || null;
 
-const VAPID_PUBLIC_KEY = "BBpIGdRk16SWgB2sqnv4VSbHPLZa3jI-iuYRCoZm0kqmSWE4pMFAYZXQuGXBBvVGRr3iVeqWUAMu66a-rv9iXew";
+const VAPID_PUBLIC_KEY = "BCqWyhedYPGNs1ZJ01ugWe0FMTsunTpFLuqPEeC4TJpuE17N8Eg-7EvXuuRObG39OnqqExJq33n1Csv7ljqWhXg";
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);

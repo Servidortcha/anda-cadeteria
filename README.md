@@ -12,11 +12,11 @@ datos para cerrar el acceso de verdad. **El orden importa:**
 
 | Paso | Qué | Cuándo |
 |---|---|---|
-| 0 | `hardening/00_revocar_privilegios.sql` | YA (no rompe nada) |
-| 1 | Desplegar el frontend nuevo (Vercel) | antes de aplicar RLS |
+| 0 | `hardening/migracion.sql` | **proyecto nuevo**: esquema + datos |
+| 1 | `hardening/00_revocar_privilegios.sql` | YA (no rompe nada) |
 | 2 | `hardening/01_vistas_publicas.sql` | después de desplegar |
 | 3 | `hardening/02_usuarios_auth.sql` (editar email/pass de admin) | después de desplegar |
-| 4 | `hardening/03_politicas_rls.sql` | **último** (rompe el frontend viejo) |
+| 4 | `hardening/03_politicas_rls.sql` | **último** — crea las políticas Y activa `ENABLE ROW LEVEL SECURITY` |
 | 5 | `hardening/99_verificar.sql` | al final, para comprobar |
 
 ### Qué cambió en la app
@@ -79,11 +79,19 @@ Para probar en local antes: `npm install` y `npm run dev`.
 
 ## Variables / claves usadas por la app
 
-- Supabase URL: `https://arapzuoqfgezupttuxbe.supabase.co`
+- Supabase URL: `https://mucojuauxsywwmalcufe.supabase.co` (proyecto exclusivo de ANDÁ)
 - Supabase publishable key: en `src/supabaseClient.js` (es pública, pensada para el cliente)
 - Clave pública VAPID (notificaciones push): en `src/App.jsx`
 - La clave **privada** de VAPID y la función `send-push` viven solo en Supabase
   (Edge Functions), no en este código.
+
+## Migración (proyecto viejo → nuevo)
+
+La app pasó del proyecto compartido `arapzuoqfgezupttuxbe` (que tenía la app de aresa,
+con triggers sobre `auth.users` y la tabla `sw_usuarios`) al proyecto exclusivo
+`mucojuauxsywwmalcufe`. El script `hardening/migracion.sql` tiene el esquema + datos
+de las 9 tablas de ANDÁ para importar en el proyecto nuevo (no se migran suscripciones
+push ni datos de aresa). Los usuarios de Auth (admin + cadetes) se crean con el script 02.
 
 ## Estructura
 
