@@ -22,6 +22,19 @@ BEGIN
 END $$;
 
 -- =============================================================
+-- ACTIVAR RLS (obligatorio: sin esto las políticas no tienen efecto)
+-- =============================================================
+ALTER TABLE public.pedidos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pedido_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cadetes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mensajes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clientes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.locales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.productos ENABLE ROW LEVEL SECURITY;
+
+-- =============================================================
 -- PEDIDOS
 -- =============================================================
 CREATE POLICY pedidos_select ON public.pedidos FOR SELECT USING (

@@ -11,7 +11,15 @@ FROM pg_policies
 WHERE schemaname = 'public'
 ORDER BY tablename, cmd;
 
--- 2) Políticas abiertas peligrosas: esto debe devolver CERO filas
+-- 2) RLS ACTIVO por tabla: las 9 tablas deben estar en 'ON'
+SELECT c.relname AS tablename, c.relrowsecurity AS rls_activo
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relname IN ('pedidos', 'pedido_items', 'cadetes', 'config', 'mensajes', 'clientes', 'push_subscriptions', 'locales', 'productos')
+ORDER BY c.relname;
+
+-- 3) Políticas abiertas peligrosas: esto debe devolver CERO filas
 --    (policy con qual 'true' en tablas de datos sensibles)
 SELECT tablename, policyname, cmd
 FROM pg_policies
