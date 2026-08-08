@@ -1404,7 +1404,7 @@ function Stepper({ estado }) {
   );
 }
 
-function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, productos, pedidoItems, crearPedidoConCarrito, onBack, modoAuthInicial }) {
+function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, productos, pedidoItems, crearPedidoConCarrito, onBack, onSalir, clienteBackRef, modoAuthInicial }) {
   const [session, setSession] = useState(undefined); // undefined = cargando, null = sin sesión
   const [perfil, setPerfil] = useState(null);
   const [authModo, setAuthModo] = useState(modoAuthInicial || "login");
@@ -1428,6 +1428,7 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
   const [editandoDireccion, setEditandoDireccion] = useState(false);
   const isMobile = useIsMobile();
   const localesRef = useRef(null);
+  const origenSeguimiento = useRef("catalogo");
 
   const itemsCarrito = Object.values(carrito);
   const totalCarrito = itemsCarrito.reduce((s, it) => s + it.precio * it.cantidad, 0);
@@ -1458,6 +1459,27 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
   };
   const elegirLocal = (local) => { setLocalElegido(local); setCarrito({}); setCheckout(false); };
   const volverALocales = () => { setLocalElegido(null); setCarrito({}); setCheckout(false); };
+
+  // Pila "atrás" interna: retrocede una pantalla dentro de la app y avisa si lo hizo.
+  const volverInterior = useCallback(() => {
+    if (menuAbierto) { setMenuAbierto(false); return true; }
+    if (carritoAbierto) { setCarritoAbierto(false); return true; }
+    if (chatAbierto) { setChatAbierto(false); return true; }
+    if (enviadoId) {
+      if (origenSeguimiento.current === "mis") setOverlay("mis");
+      setEnviadoId(null);
+      return true;
+    }
+    if (overlay === "perfil" || overlay === "mis") { setOverlay(null); return true; }
+    if (checkout) { setCheckout(false); return true; }
+    if (localElegido) { setLocalElegido(null); setCheckout(false); return true; }
+    return false; // catálogo raíz: el padre se encarga de ir al inicio
+  }, [menuAbierto, carritoAbierto, chatAbierto, enviadoId, overlay, checkout, localElegido]);
+
+  useEffect(() => {
+    if (clienteBackRef) clienteBackRef.current = volverInterior;
+    return () => { if (clienteBackRef) clienteBackRef.current = null; };
+  }, [volverInterior, clienteBackRef]);
 
   const carritoBoton = {
     width: 28, height: 28, borderRadius: 7, background: COLORS.panel2, color: COLORS.text,
@@ -1741,6 +1763,7 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
       crearPedidoDirecto(pedido);
     }
     notificar("admin", null, "Nuevo pedido", `${pedido.cliente} — ${pedido.direccion}`, "/");
+    origenSeguimiento.current = "catalogo";
     setEnviadoId(pedidoId);
     setLocalElegido(null); setCarrito({}); setCheckout(false);
   };
@@ -1804,7 +1827,7 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
               background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
               padding: "10px 18px", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer",
             }}>HACER OTRO PEDIDO</button>
-            <button onClick={onBack} style={{
+            <button onClick={onSalir || onBack} style={{
               background: "none", color: COLORS.muted, border: `1px solid ${COLORS.line}`, borderRadius: 6,
               padding: "10px 18px", fontFamily: "'Inter', sans-serif", fontSize: 13, cursor: "pointer",
             }}>VOLVER AL INICIO</button>
@@ -2003,7 +2026,7 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
                 </button>
                 {misPedidos.length === 0 && <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13 }}>Todavía no hiciste ningún pedido.</div>}
                 {misPedidos.map((p) => (
-                  <div key={p.id} style={{ background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 16, marginBottom: 12, cursor: "pointer" }} onClick={() => setEnviadoId(p.id)}>
+                  <div key={p.id} style={{ background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 16, marginBottom: 12, cursor: "pointer" }} onClick={() => { origenSeguimiento.current = "mis"; setEnviadoId(p.id); }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                       <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text }}>{p.direccion}</div>
                       <Badge estado={p.estado} />
@@ -2572,21 +2595,41 @@ export default function CadeteriaApp() {
   );
   const viewRef = useRef(view);
   viewRef.current = view;
+  // VistaCliente registra aquí su "atrás" interno (catálogo → menú → checkout → seguimiento)
+  // para que el botón atrás del celular retroceda pantallas dentro de la app en vez de
+  // saltar al inicio o a las páginas de Google/callback del login social.
+  const clienteBackRef = useRef(null);
   const {
     pedidos, savePedidos, cadetes, saveCadetes, locales, saveLocales,
     productos, saveProductos, pedidoItems, crearPedidoConCarrito, crearPedidoDirecto,
     config, saveConfig, actualizarPedido, rol, sessionUser, loaded,
   } = useStorage();
 
-  // Integra el botón "atrás" físico/gesto del celular con la navegación interna,
-  // para que no cierre la app de golpe sino que vuelva a la pantalla de inicio.
+  // Apila una entrada limpia de la app: así "atrás" nunca sale a las páginas de
+  // Google/callback que quedan en el historial después del login social.
+  useEffect(() => {
+    if (window.history?.state?.andaApp) return;
+    try {
+      window.history.replaceState({ andaApp: true }, "", "");
+      window.history.pushState({ andaApp: true }, "", "");
+    } catch (e) {}
+  }, []);
+
+  const volverAlInicio = () => {
+    setView("landing");
+    setModoAuthCliente("login");
+    setAdminAuth(false);
+  };
+  const volverCliente = () => {
+    if (clienteBackRef.current && clienteBackRef.current() === true) return;
+    volverAlInicio();
+  };
+
+  // Integra el botón "atrás" físico/gesto del celular con la navegación interna.
   useEffect(() => {
     const handlePopState = () => {
-      if (viewRef.current !== "landing") {
-        setView("landing");
-        setModoAuthCliente("login");
-        setAdminAuth(false);
-      }
+      if (viewRef.current === "cliente") { volverCliente(); return; }
+      if (viewRef.current !== "landing") volverAlInicio();
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -2597,6 +2640,7 @@ export default function CadeteriaApp() {
     if (oauthEntrante && sessionUser && rol === "cliente") {
       setModoAuthCliente("login");
       setView("cliente");
+      try { window.history.replaceState({ andaApp: true }, "", ""); } catch (e) {}
     }
   }, [oauthEntrante, sessionUser, rol]);
 
@@ -2619,7 +2663,7 @@ export default function CadeteriaApp() {
     <div style={{ background: COLORS.bg, minHeight: "100vh" }}>
       <style>{FONTS}</style>
       {view === "landing" && <Landing setView={irA} onCrearCuenta={() => { setModoAuthCliente("signup"); irA("cliente"); }} />}
-      {view === "cliente" && <VistaCliente cadetes={cadetes} config={config} pedidos={pedidos} crearPedidoDirecto={crearPedidoDirecto} locales={locales} productos={productos} pedidoItems={pedidoItems} crearPedidoConCarrito={crearPedidoConCarrito} onBack={volver} modoAuthInicial={modoAuthCliente} />}
+      {view === "cliente" && <VistaCliente cadetes={cadetes} config={config} pedidos={pedidos} crearPedidoDirecto={crearPedidoDirecto} locales={locales} productos={productos} pedidoItems={pedidoItems} crearPedidoConCarrito={crearPedidoConCarrito} onBack={volverCliente} onSalir={volverAlInicio} clienteBackRef={clienteBackRef} modoAuthInicial={modoAuthCliente} />}
       {view === "cadete" && <VistaCadete cadetes={cadetes} pedidos={pedidos} actualizarPedido={actualizarPedido} onBack={volver} />}
       {view === "admin" && !adminAuth && (
         <AdminLogin onSuccess={() => setAdminAuth(true)} onBack={volver} />
