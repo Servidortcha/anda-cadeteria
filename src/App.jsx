@@ -2464,7 +2464,7 @@ export default function CadeteriaApp() {
   const {
     pedidos, savePedidos, cadetes, saveCadetes, locales, saveLocales,
     productos, saveProductos, pedidoItems, crearPedidoConCarrito, crearPedidoDirecto,
-    config, saveConfig, actualizarPedido, loaded,
+    config, saveConfig, actualizarPedido, rol, sessionUser, loaded,
   } = useStorage();
 
   // Integra el botón "atrás" físico/gesto del celular con la navegación interna,
