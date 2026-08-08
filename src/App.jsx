@@ -3,7 +3,7 @@ import {
   Package, Users, DollarSign, BarChart3, Plus, X, Check,
   Clock, Truck, Trash2, MapPin, Phone, ChevronRight, Route as RouteIcon,
   Ban, Pencil, MessageCircle, Send, Bell, MoreHorizontal,
-  ShoppingCart, User, History, LogOut, ChevronDown, Minus, Search
+  ShoppingCart, User, History, LogOut, ChevronDown, Minus, Search, Store
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -42,15 +42,17 @@ const money = (n) => `$${Number(n || 0).toLocaleString("es-AR", { minimumFractio
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 // --- Roles de acceso (Supabase Auth) ---
-// "anon" = sin sesión · "cliente" = cuenta creada en la app · "admin" / "cadete" = rol en user_metadata
+// "anon" = sin sesión · "cliente" = cuenta creada en la app · "admin" / "cadete" / "local" = rol en user_metadata
 const detectarRol = (user) => {
   if (!user) return "anon";
   const rol = user.user_metadata?.rol;
-  return rol === "admin" || rol === "cadete" ? rol : "cliente";
+  return rol === "admin" || rol === "cadete" || rol === "local" ? rol : "cliente";
 };
 // El email de login de cada cadete se deriva de su id (determinístico, no expuesto al público)
 const emailCadete = (id) => `c.${id}@anda.cadete`;
 const cadeteIdDeSesion = (user) => user?.user_metadata?.cadete_id || null;
+// Ídem para cada negocio (local): l.<id>@anda.local
+const emailLocal = (id) => `l.${id}@anda.local`;
 
 const VAPID_PUBLIC_KEY = "BCqWyhedYPGNs1ZJ01ugWe0FMTsunTpFLuqPEeC4TJpuE17N8Eg-7EvXuuRObG39OnqqExJq33n1Csv7ljqWhXg";
 
@@ -159,8 +161,8 @@ const pedidoToRow = (p) => ({
 });
 const rowToCadete = (r) => ({ id: r.id, nombre: r.nombre, telefono: r.telefono, password: r.password, activo: r.activo });
 const cadeteToRow = (c) => ({ id: c.id, nombre: c.nombre, telefono: c.telefono || null, password: c.password, activo: c.activo });
-const rowToLocal = (r) => ({ id: r.id, nombre: r.nombre, direccion: r.direccion, categoria: r.categoria, imagenUrl: r.imagen_url, activo: r.activo, orden: r.orden });
-const localToRow = (l) => ({ id: l.id, nombre: l.nombre, direccion: l.direccion, categoria: l.categoria || null, imagen_url: l.imagenUrl || null, activo: l.activo, orden: l.orden || 0 });
+const rowToLocal = (r) => ({ id: r.id, nombre: r.nombre, direccion: r.direccion, categoria: r.categoria, imagenUrl: r.imagen_url, activo: r.activo, orden: r.orden, password: r.password || "" });
+const localToRow = (l) => ({ id: l.id, nombre: l.nombre, direccion: l.direccion, categoria: l.categoria || null, imagen_url: l.imagenUrl || null, activo: l.activo, orden: l.orden || 0, password: l.password || null });
 const rowToProducto = (r) => ({ id: r.id, localId: r.local_id, nombre: r.nombre, descripcion: r.descripcion, precio: Number(r.precio), imagenUrl: r.imagen_url, disponible: r.disponible, orden: r.orden });
 const productoToRow = (p) => ({ id: p.id, local_id: p.localId, nombre: p.nombre, descripcion: p.descripcion || null, precio: p.precio, imagen_url: p.imagenUrl || null, disponible: p.disponible, orden: p.orden || 0 });
 const rowToItem = (r) => ({ id: r.id, pedidoId: r.pedido_id, productoId: r.producto_id, nombre: r.nombre, precio: Number(r.precio), cantidad: r.cantidad });
@@ -832,12 +834,12 @@ function TabCadetes({ cadetes, saveCadetes, pedidos }) {
 
 function TabLocales({ locales, saveLocales }) {
   const isMobile = useIsMobile();
-  const [form, setForm] = useState({ nombre: "", direccion: "", categoria: "", imagenUrl: "" });
+  const [form, setForm] = useState({ nombre: "", direccion: "", categoria: "", imagenUrl: "", password: "" });
 
   const add = () => {
     if (!form.nombre.trim() || !form.direccion.trim()) return;
     saveLocales([...locales, { id: uid(), ...form, activo: true, orden: locales.length }]);
-    setForm({ nombre: "", direccion: "", categoria: "", imagenUrl: "" });
+    setForm({ nombre: "", direccion: "", categoria: "", imagenUrl: "", password: "" });
   };
   const toggle = (id) => saveLocales(locales.map((l) => l.id === id ? { ...l, activo: !l.activo } : l));
   const del = (id) => saveLocales(locales.filter((l) => l.id !== id));
@@ -851,12 +853,13 @@ function TabLocales({ locales, saveLocales }) {
   return (
     <div>
       <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text, marginBottom: 4 }}>LOCALES</div>
-      <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Aparecen como sugerencias al cliente cuando arma un pedido</div>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.2fr 1.4fr 0.8fr 1fr auto", gap: 10, marginBottom: 20 }}>
+      <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Si le cargás contraseña, el local recibe su usuario para entrar como "Soy negocio" y cargar sus productos</div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.2fr 1.2fr 0.7fr 1fr 0.8fr auto", gap: 10, marginBottom: 20 }}>
         <input style={inputStyle} placeholder="Nombre del local" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
         <input style={inputStyle} placeholder="Dirección" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} />
         <input style={inputStyle} placeholder="Categoría" value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} />
         <input style={inputStyle} placeholder="URL de imagen (opcional)" value={form.imagenUrl} onChange={(e) => setForm({ ...form, imagenUrl: e.target.value })} />
+        <input style={inputStyle} type="password" placeholder="Contraseña (cuenta)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
         <button onClick={add} style={{
           background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
           padding: "9px 14px", fontFamily: "'Oswald', sans-serif", fontWeight: 600,
@@ -879,6 +882,9 @@ function TabLocales({ locales, saveLocales }) {
               <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text }}>{l.nombre}</div>
               {l.categoria && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.accent, marginTop: 2 }}>{l.categoria}</div>}
               <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginTop: 4 }}>{l.direccion}</div>
+              <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: l.password ? COLORS.green : COLORS.grey, marginTop: 6 }}>
+                {l.password ? "✓ Tiene cuenta de negocio" : "Sin cuenta (cargá contraseña)"}
+              </div>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button onClick={() => toggle(l.id)} style={{
                   flex: 1, background: "transparent", border: `1px solid ${l.activo ? COLORS.green : COLORS.grey}66`,
@@ -1218,6 +1224,11 @@ function Landing({ setView, onCrearCuenta }) {
               color: COLORS.text, cursor: "pointer", fontFamily: "'Inter', sans-serif", fontSize: 13,
               padding: "9px 10px", borderRadius: 5, textAlign: "left",
             }}><Truck size={14} color={COLORS.muted} /> Soy cadete</button>
+            <button onClick={() => { setMenuAbierto(false); setView("local"); }} style={{
+              display: "flex", alignItems: "center", gap: 8, background: "none", border: "none",
+              color: COLORS.text, cursor: "pointer", fontFamily: "'Inter', sans-serif", fontSize: 13,
+              padding: "9px 10px", borderRadius: 5, textAlign: "left",
+            }}><Store size={14} color={COLORS.muted} /> Soy negocio</button>
             <button onClick={() => { setMenuAbierto(false); setView("admin"); }} style={{
               display: "flex", alignItems: "center", gap: 8, background: "none", border: "none",
               color: COLORS.text, cursor: "pointer", fontFamily: "'Inter', sans-serif", fontSize: 13,
@@ -2286,6 +2297,250 @@ function timeAgo(ts) {
   return `hace ${Math.floor(m / 60)} h`;
 }
 
+function VistaLocal({ locales, productos, saveLocales, saveProductos, onBack, onSalir }) {
+  const [localId, setLocalId] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [autenticado, setAutenticado] = useState(false);
+  const [cargando, setCargando] = useState(false);
+  const [editando, setEditando] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [form, setForm] = useState({ nombre: "", precio: "", descripcion: "", imagenUrl: "" });
+  const local = locales.find((l) => l.id === localId);
+  const misProductos = productos.filter((p) => p.localId === localId);
+
+  // Sesión de Supabase Auth: un local logueado entra directo a su panel
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      const u = data.session?.user || null;
+      if (u?.user_metadata?.rol === "local") {
+        setLocalId(u.user_metadata.local_id || "");
+        setAutenticado(true);
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_ev, s) => {
+      const u = s?.user || null;
+      if (u?.user_metadata?.rol === "local") {
+        setLocalId(u.user_metadata.local_id || "");
+        setAutenticado(true);
+      } else {
+        setAutenticado(false);
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const inputStyle = {
+    width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.line}`,
+    borderRadius: 6, padding: "10px 12px", color: COLORS.text,
+    fontFamily: "'Inter', sans-serif", fontSize: 13, outline: "none", boxSizing: "border-box",
+  };
+
+  const salir = async () => {
+    try { await supabase.auth.signOut(); } catch (e) {}
+    setAutenticado(false);
+    setLocalId("");
+    setPassword("");
+    onSalir();
+  };
+
+  const abrirEditar = () => {
+    if (!local) return;
+    setEditForm({ nombre: local.nombre, direccion: local.direccion, categoria: local.categoria || "", imagenUrl: local.imagenUrl || "", activo: local.activo });
+    setEditando(true);
+  };
+  const guardarLocal = () => {
+    if (!editForm.nombre.trim() || !editForm.direccion.trim()) return;
+    saveLocales(locales.map((l) => l.id === localId ? { ...l, ...editForm } : l));
+    setEditando(false);
+  };
+
+  const addProducto = () => {
+    if (!localId || !form.nombre.trim() || !form.precio) return;
+    saveProductos([...productos, {
+      id: uid(), localId, nombre: form.nombre, descripcion: form.descripcion, precio: Number(form.precio) || 0,
+      imagenUrl: form.imagenUrl, disponible: true, orden: misProductos.length,
+    }]);
+    setForm({ nombre: "", precio: "", descripcion: "", imagenUrl: "" });
+  };
+  const toggleProducto = (id) => saveProductos(productos.map((p) => p.id === id ? { ...p, disponible: !p.disponible } : p));
+  const delProducto = (id) => saveProductos(productos.filter((p) => p.id !== id));
+
+  // PASO 1 · elegir el negocio
+  if (!local) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 360 }}>
+          <BackLink onBack={onBack} />
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text, marginBottom: 4 }}>¿QUÉ NEGOCIO SOS?</div>
+          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Elegí tu local y entrá con tu contraseña</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {locales.map((l) => (
+              <button key={l.id} onClick={() => { setLocalId(l.id); setError(""); setPassword(""); }} style={{
+                background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 7,
+                padding: "13px 16px", textAlign: "left", color: COLORS.text, cursor: "pointer",
+                fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 500,
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+              }}>{l.nombre} <ChevronRight size={16} color={COLORS.muted} /></button>
+            ))}
+            {locales.length === 0 && (
+              <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13 }}>No hay locales cargados todavía. Pedile al administrador que te cargue el tuyo.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PASO 2 · contraseña
+  if (!autenticado) {
+    const intentar = async () => {
+      if (!password.trim()) { setError("Ingresá tu contraseña"); return; }
+      setCargando(true); setError("");
+      const { error } = await supabase.auth.signInWithPassword({ email: emailLocal(localId), password });
+      setCargando(false);
+      if (error) {
+        const msg = (error.message || "").toLowerCase();
+        setError(msg.includes("invalid") || msg.includes("password") ? "Contraseña incorrecta" : "No pudimos iniciar sesión. Probá de nuevo.");
+      }
+    };
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ width: "100%", maxWidth: 320 }}>
+          <BackLink onBack={() => { setLocalId(""); setPassword(""); setError(""); }} />
+          <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.text, marginBottom: 4 }}>HOLA, {local.nombre.toUpperCase()}</div>
+          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Ingresá tu contraseña</div>
+          <input
+            type="password" style={inputStyle} value={password} autoFocus
+            onChange={(e) => { setPassword(e.target.value); setError(""); }}
+            onKeyDown={(e) => e.key === "Enter" && intentar()}
+            placeholder="Contraseña"
+          />
+          {error && <div style={{ color: COLORS.red, fontFamily: "'Inter', sans-serif", fontSize: 12, marginTop: 8 }}>{error}</div>}
+          <button onClick={intentar} disabled={cargando} style={{
+            width: "100%", marginTop: 16, background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
+            padding: "12px 0", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 13,
+            letterSpacing: "0.03em", cursor: cargando ? "default" : "pointer", opacity: cargando ? 0.6 : 1,
+          }}>{cargando ? "INGRESANDO..." : "INGRESAR"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // PANEL · gestión del local y sus productos
+  return (
+    <div style={{ minHeight: "100vh", padding: 24 }}>
+      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <BackLink onBack={onSalir} />
+          <button onClick={salir} style={{
+            background: "none", border: "none", color: COLORS.grey, cursor: "pointer",
+            fontFamily: "'Inter', sans-serif", fontSize: 12, display: "flex", alignItems: "center", gap: 5,
+          }}><LogOut size={13} /> Salir</button>
+        </div>
+
+        {/* Datos del local */}
+        <div style={{
+          background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 10,
+          overflow: "hidden", marginBottom: 20,
+        }}>
+          <div style={{
+            height: 110, background: local.imagenUrl ? `url(${local.imagenUrl}) center/cover` : COLORS.bg,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            {!local.imagenUrl && <Store size={30} color={COLORS.grey} />}
+          </div>
+          <div style={{ padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+              <div>
+                <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.text }}>{local.nombre}</div>
+                {local.categoria && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.accent, marginTop: 2 }}>{local.categoria}</div>}
+                <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginTop: 4 }}>{local.direccion}</div>
+              </div>
+              <button onClick={() => editando ? guardarLocal() : abrirEditar()} style={{
+                background: "transparent", border: `1px solid ${COLORS.accent}66`, color: COLORS.accent,
+                borderRadius: 6, padding: "7px 12px", fontFamily: "'Inter', sans-serif", fontSize: 11,
+                fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+              }}>{editando ? "GUARDAR" : <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Pencil size={12} /> EDITAR</span>}</button>
+            </div>
+
+            {editando && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.line}` }}>
+                <input style={inputStyle} placeholder="Nombre del local" value={editForm.nombre || ""} onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })} />
+                <input style={inputStyle} placeholder="Dirección" value={editForm.direccion || ""} onChange={(e) => setEditForm({ ...editForm, direccion: e.target.value })} />
+                <input style={inputStyle} placeholder="Categoría" value={editForm.categoria || ""} onChange={(e) => setEditForm({ ...editForm, categoria: e.target.value })} />
+                <input style={inputStyle} placeholder="URL de imagen (opcional)" value={editForm.imagenUrl || ""} onChange={(e) => setEditForm({ ...editForm, imagenUrl: e.target.value })} />
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <button onClick={() => setEditForm({ ...editForm, activo: !editForm.activo })} style={{
+                    flex: 1, background: "transparent", border: `1px solid ${editForm.activo ? COLORS.green : COLORS.grey}66`,
+                    color: editForm.activo ? COLORS.green : COLORS.grey, borderRadius: 5, padding: "8px 0",
+                    fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  }}>{editForm.activo ? "ABIERTO (visible en la app)" : "CERRADO (oculto en la app)"}</button>
+                  <button onClick={() => setEditando(false)} style={{
+                    background: "transparent", border: `1px solid ${COLORS.line}`, color: COLORS.grey,
+                    borderRadius: 5, padding: "8px 14px", cursor: "pointer", fontFamily: "'Inter', sans-serif", fontSize: 11,
+                  }}>Cancelar</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Alta de producto */}
+        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, color: COLORS.text, marginBottom: 10 }}>TUS PRODUCTOS</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 0.6fr 1.2fr 1fr auto", gap: 8, marginBottom: 12, alignItems: "center" }}>
+          <input style={inputStyle} placeholder="Producto" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
+          <input style={inputStyle} type="number" placeholder="Precio" value={form.precio} onChange={(e) => setForm({ ...form, precio: e.target.value })} />
+          <input style={inputStyle} placeholder="Descripción (opcional)" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} />
+          <input style={inputStyle} placeholder="URL de imagen (opcional)" value={form.imagenUrl} onChange={(e) => setForm({ ...form, imagenUrl: e.target.value })} />
+          <button onClick={addProducto} style={{
+            background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
+            padding: "10px 12px", fontFamily: "'Oswald', sans-serif", fontWeight: 600,
+            fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, justifyContent: "center",
+          }}><Plus size={14} /> AGREGAR</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+          {misProductos.map((p) => (
+            <div key={p.id} style={{
+              background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, overflow: "hidden",
+              opacity: p.disponible ? 1 : 0.5,
+            }}>
+              <div style={{
+                height: 80, background: p.imagenUrl ? `url(${p.imagenUrl}) center/cover` : COLORS.bg,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {!p.imagenUrl && <Package size={22} color={COLORS.grey} />}
+              </div>
+              <div style={{ padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 13, color: COLORS.text }}>{p.nombre}</div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: COLORS.accent, fontWeight: 700 }}>{money(p.precio)}</div>
+                </div>
+                {p.descripcion && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted, marginTop: 4 }}>{p.descripcion}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button onClick={() => toggleProducto(p.id)} style={{
+                    flex: 1, background: "transparent", border: `1px solid ${p.disponible ? COLORS.green : COLORS.grey}66`,
+                    color: p.disponible ? COLORS.green : COLORS.grey, borderRadius: 5, padding: "5px 0",
+                    fontFamily: "'Inter', sans-serif", fontSize: 10, fontWeight: 600, cursor: "pointer",
+                  }}>{p.disponible ? "DISPONIBLE" : "AGOTADO"}</button>
+                  <button onClick={() => delProducto(p.id)} style={{
+                    background: "transparent", border: `1px solid ${COLORS.line}`, color: COLORS.grey,
+                    borderRadius: 5, padding: "5px 9px", cursor: "pointer",
+                  }}><Trash2 size={12} /></button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {misProductos.length === 0 && (
+            <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13 }}>Todavía no cargaste productos. Agregalos arriba y aparecen en el menú que ve el cliente.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VistaCadete({ cadetes, pedidos, actualizarPedido, onBack }) {
   const [cadeteId, setCadeteId] = useState("");
   const [password, setPassword] = useState("");
@@ -2665,6 +2920,7 @@ export default function CadeteriaApp() {
       {view === "landing" && <Landing setView={irA} onCrearCuenta={() => { setModoAuthCliente("signup"); irA("cliente"); }} />}
       {view === "cliente" && <VistaCliente cadetes={cadetes} config={config} pedidos={pedidos} crearPedidoDirecto={crearPedidoDirecto} locales={locales} productos={productos} pedidoItems={pedidoItems} crearPedidoConCarrito={crearPedidoConCarrito} onBack={volverCliente} onSalir={volverAlInicio} clienteBackRef={clienteBackRef} modoAuthInicial={modoAuthCliente} />}
       {view === "cadete" && <VistaCadete cadetes={cadetes} pedidos={pedidos} actualizarPedido={actualizarPedido} onBack={volver} />}
+      {view === "local" && <VistaLocal locales={locales} productos={productos} saveLocales={saveLocales} saveProductos={saveProductos} onBack={volver} onSalir={volverAlInicio} />}
       {view === "admin" && !adminAuth && (
         <AdminLogin onSuccess={() => setAdminAuth(true)} onBack={volver} />
       )}
