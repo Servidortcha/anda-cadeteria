@@ -3,7 +3,7 @@ import {
   Package, Users, DollarSign, BarChart3, Plus, X, Check,
   Clock, Truck, Trash2, MapPin, Phone, ChevronRight, Route as RouteIcon,
   Ban, Pencil, MessageCircle, Send, Bell, MoreHorizontal,
-  ShoppingCart, User, History, LogOut, ChevronDown, Minus
+  ShoppingCart, User, History, LogOut, ChevronDown, Minus, Search
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -1423,12 +1423,24 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [overlay, setOverlay] = useState(null); // null | "perfil" | "mis"
   const [carritoAbierto, setCarritoAbierto] = useState(false); // bottom sheet móvil
+  const [busqueda, setBusqueda] = useState("");
+  const [categoriaFiltro, setCategoriaFiltro] = useState("Todos");
+  const [editandoDireccion, setEditandoDireccion] = useState(false);
   const isMobile = useIsMobile();
   const localesRef = useRef(null);
 
   const itemsCarrito = Object.values(carrito);
   const totalCarrito = itemsCarrito.reduce((s, it) => s + it.precio * it.cantidad, 0);
   const cantidadCarrito = itemsCarrito.reduce((s, it) => s + it.cantidad, 0);
+
+  const localesActivos = (locales || []).filter((l) => l.activo);
+  const categorias = ["Todos", ...Array.from(new Set(localesActivos.map((l) => l.categoria).filter(Boolean)))];
+  const busquedaNorm = busqueda.trim().toLowerCase();
+  const localesFiltrados = localesActivos.filter((l) =>
+    (categoriaFiltro === "Todos" || l.categoria === categoriaFiltro) &&
+    (!busquedaNorm || l.nombre.toLowerCase().includes(busquedaNorm))
+  );
+  const direccionEntrega = form.direccion || perfil?.direccion || "";
 
   const agregar = (producto) => {
     setCarrito((c) => {
@@ -1882,13 +1894,52 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* Contenido principal */}
         <div style={{ flex: 1, overflowY: "auto", minWidth: 0, padding: "22px 20px 130px" }}>
-          <div style={{ maxWidth: 560, margin: "0 auto" }}>
-            <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text, marginBottom: 4 }}>
-              HOLA, {perfil.nombre.split(" ")[0].toUpperCase()}
-            </div>
-            <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 22 }}>
-              {overlay === "perfil" ? "Tus datos y preferencias" : overlay === "mis" ? "Seguí tus envíos" : localElegido ? `Menú de ${localElegido.nombre}` : "Elegí un local para empezar"}
-            </div>
+          <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            {overlay === "perfil" && (
+              <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.text, marginBottom: 16 }}>MI PERFIL</div>
+            )}
+            {overlay === "mis" && (
+              <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.text, marginBottom: 16 }}>MIS PEDIDOS</div>
+            )}
+            {overlay === null && !localElegido && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text, letterSpacing: "0.02em" }}>
+                  HOLA, {perfil.nombre.split(" ")[0].toUpperCase()} 👋
+                </div>
+                <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: COLORS.muted, marginTop: 2 }}>¿Qué tenés ganas de pedir hoy?</div>
+              </div>
+            )}
+
+            {overlay === null && !localElegido && (
+              <div style={{ marginBottom: 16 }}>
+                {editandoDireccion ? (
+                  <div style={{ display: "flex", gap: 8, background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 10 }}>
+                    <input autoFocus style={{ ...inputStyle, margin: 0, flex: 1 }} value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} placeholder="Calle y número" onKeyDown={(e) => e.key === "Enter" && setEditandoDireccion(false)} />
+                    <button onClick={() => setEditandoDireccion(false)} style={{
+                      background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 8,
+                      padding: "0 16px", fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                    }}>OK</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setEditandoDireccion(true)} style={{
+                    display: "flex", alignItems: "center", gap: 12, width: "100%",
+                    background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "11px 14px",
+                    cursor: "pointer", textAlign: "left",
+                  }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 9, background: `${COLORS.accent}1A`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <MapPin size={18} color={COLORS.accent} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: COLORS.muted, letterSpacing: "0.08em", marginBottom: 2 }}>ENVIAR A</div>
+                      <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600, color: COLORS.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {direccionEntrega || "Ingresá tu dirección de entrega"}
+                      </div>
+                    </div>
+                    <Pencil size={14} color={COLORS.muted} />
+                  </button>
+                )}
+              </div>
+            )}
 
             {overlay === "perfil" ? (
               <div>
@@ -1965,32 +2016,68 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
               </div>
             ) : !localElegido ? (
               <div ref={localesRef}>
-                <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>Elegí un local para pedir</div>
-                {locales && locales.filter((l) => l.activo).length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-                    {locales.filter((l) => l.activo).map((l) => (
-                      <button key={l.id} onClick={() => elegirLocal(l)} style={{
-                        display: "flex", alignItems: "center", gap: 12, textAlign: "left", cursor: "pointer",
-                        background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 12,
+                <div style={{ marginBottom: 14, position: "relative" }}>
+                  <Search size={16} color={COLORS.grey} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+                  <input style={{ ...inputStyle, paddingLeft: 36 }} value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscá un local..." />
+                </div>
+
+                {categorias.length > 1 && (
+                  <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 10, marginBottom: 16, WebkitOverflowScrolling: "touch" }}>
+                    {categorias.map((c) => {
+                      const activo = categoriaFiltro === c;
+                      return (
+                        <button key={c} onClick={() => setCategoriaFiltro(c)} style={{
+                          flexShrink: 0, padding: "8px 16px", borderRadius: 20, cursor: "pointer",
+                          background: activo ? COLORS.accent : COLORS.panel2, color: activo ? "#16181B" : COLORS.text,
+                          border: `1px solid ${activo ? COLORS.accent : COLORS.line}`,
+                          fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
+                        }}>
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {localesFiltrados.length > 0 ? (
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, marginBottom: 24 }}>
+                    {localesFiltrados.map((l) => (
+                      <button key={l.id} onClick={() => { elegirLocal(l); setBusqueda(""); setCategoriaFiltro("Todos"); }} style={{
+                        cursor: "pointer", textAlign: "left", overflow: "hidden", borderRadius: 12,
+                        border: `1px solid ${COLORS.line}`, background: COLORS.panel2, padding: 0,
                       }}>
                         <div style={{
-                          width: 52, height: 52, borderRadius: 6, flexShrink: 0,
-                          background: l.imagenUrl ? `url(${l.imagenUrl}) center/cover` : COLORS.bg,
+                          height: 130, position: "relative",
+                          background: l.imagenUrl ? `url(${l.imagenUrl}) center/cover` : `linear-gradient(135deg, ${COLORS.accentDim}, ${COLORS.panel2})`,
                           display: "flex", alignItems: "center", justifyContent: "center",
                         }}>
-                          {!l.imagenUrl && <Package size={20} color={COLORS.grey} />}
+                          {!l.imagenUrl && <Package size={36} color={COLORS.grey} />}
+                          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 40%, rgba(0,0,0,.55))" }} />
+                          {l.categoria && (
+                            <div style={{ position: "absolute", top: 10, left: 10, background: `${COLORS.bg}CC`, color: COLORS.accentYellow, fontFamily: "'Inter', sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", padding: "4px 9px", borderRadius: 12 }}>
+                              {l.categoria.toUpperCase()}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text }}>{l.nombre}</div>
-                          {l.categoria && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.accent, marginTop: 2 }}>{l.categoria}</div>}
-                          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted, marginTop: 2 }}>{l.direccion}</div>
+                        <div style={{ padding: "12px 14px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                            <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 15, color: COLORS.text }}>{l.nombre}</div>
+                            <ChevronRight size={16} color={COLORS.muted} style={{ flexShrink: 0 }} />
+                          </div>
+                          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.direccion}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+                            <Clock size={13} color={COLORS.accent} />
+                            <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted }}>Envío desde</span>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: COLORS.accentYellow, fontWeight: 700 }}>{money(config.tarifaDefault)}</span>
+                          </div>
                         </div>
-                        <ChevronRight size={16} color={COLORS.muted} />
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13, marginBottom: 20 }}>Todavía no hay locales cargados.</div>
+                  <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13, marginBottom: 20 }}>
+                    {localesActivos.length === 0 ? "Todavía no hay locales cargados." : "No hay locales que coincidan con tu búsqueda."}
+                  </div>
                 )}
 
                 <div style={{ borderTop: `1px solid ${COLORS.line}`, paddingTop: 18 }}>
@@ -2017,41 +2104,65 @@ function VistaCliente({ cadetes, config, pedidos, crearPedidoDirecto, locales, p
             ) : !checkout ? (
               <>
                 <button onClick={volverALocales} style={volverLink}>&larr; Otro local</button>
-                <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 18, color: COLORS.text, marginBottom: 2 }}>{localElegido.nombre}</div>
-                <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: COLORS.muted, marginBottom: 18 }}>{localElegido.direccion}</div>
+                <div style={{
+                  height: 150, borderRadius: 12, overflow: "hidden", position: "relative", marginBottom: 16,
+                  background: localElegido.imagenUrl ? `url(${localElegido.imagenUrl}) center/cover` : `linear-gradient(135deg, ${COLORS.accentDim}, ${COLORS.panel2})`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  {!localElegido.imagenUrl && <Package size={40} color={COLORS.grey} />}
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 35%, rgba(0,0,0,.7))" }} />
+                  <div style={{ position: "absolute", bottom: 12, left: 14, right: 14 }}>
+                    <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 22, color: COLORS.text }}>{localElegido.nombre}</div>
+                    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, color: "rgba(237,237,233,.85)", marginTop: 2 }}>{localElegido.direccion}</div>
+                  </div>
+                </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: isMobile ? 120 : 20 }}>
-                  {productos.filter((p) => p.localId === localElegido.id && p.disponible).map((p) => {
-                    const enCarrito = carrito[p.id]?.cantidad || 0;
-                    return (
-                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 12 }}>
-                        <div style={{
-                          width: 48, height: 48, borderRadius: 6, flexShrink: 0,
-                          background: p.imagenUrl ? `url(${p.imagenUrl}) center/cover` : COLORS.bg,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                        }}>
-                          {!p.imagenUrl && <Package size={18} color={COLORS.grey} />}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 13, color: COLORS.text }}>{p.nombre}</div>
-                          {p.descripcion && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted, marginTop: 2 }}>{p.descripcion}</div>}
-                          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: COLORS.accent, marginTop: 3 }}>{money(p.precio)}</div>
-                        </div>
-                        {enCarrito > 0 ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <button onClick={() => quitar(p.id)} style={{ width: 26, height: 26, borderRadius: 5, background: COLORS.bg, border: `1px solid ${COLORS.line}`, color: COLORS.text, cursor: "pointer" }}>−</button>
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: COLORS.text, minWidth: 16, textAlign: "center" }}>{enCarrito}</span>
-                            <button onClick={() => agregar(p)} style={{ width: 26, height: 26, borderRadius: 5, background: COLORS.accent, border: "none", color: "#16181B", cursor: "pointer", fontWeight: 700 }}>+</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => agregar(p)} style={{
-                            background: COLORS.accent, color: "#16181B", border: "none", borderRadius: 6,
-                            padding: "7px 12px", fontFamily: "'Oswald', sans-serif", fontWeight: 600, fontSize: 12, cursor: "pointer",
-                          }}>AGREGAR</button>
-                        )}
+                <div style={{ display: "flex", flexDirection: "column", paddingBottom: isMobile ? 120 : 20 }}>
+                  {(() => {
+                    const menu = productos.filter((p) => p.localId === localElegido.id && p.disponible);
+                    const grupos = menu.reduce((acc, p) => {
+                      const cat = p.categoria || "Menú";
+                      (acc[cat] = acc[cat] || []).push(p);
+                      return acc;
+                    }, {});
+                    return Object.entries(grupos).map(([cat, items]) => (
+                      <div key={cat}>
+                        <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 14, color: COLORS.accentYellow, letterSpacing: "0.04em", margin: "6px 0 10px" }}>{cat.toUpperCase()}</div>
+                        {items.map((p) => {
+                          const enCarrito = carrito[p.id]?.cantidad || 0;
+                          return (
+                            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: COLORS.panel2, border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                              <div style={{
+                                width: 56, height: 56, borderRadius: 10, flexShrink: 0,
+                                background: p.imagenUrl ? `url(${p.imagenUrl}) center/cover` : COLORS.bg,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                              }}>
+                                {!p.imagenUrl && <Package size={20} color={COLORS.grey} />}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text }}>{p.nombre}</div>
+                                {p.descripcion && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: COLORS.muted, marginTop: 2 }}>{p.descripcion}</div>}
+                                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: COLORS.accent, marginTop: 4 }}>{money(p.precio)}</div>
+                              </div>
+                              {enCarrito > 0 ? (
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, background: COLORS.bg, border: `1px solid ${COLORS.accent}55`, borderRadius: 20, padding: "4px 6px" }}>
+                                  <button onClick={() => quitar(p.id)} style={{ width: 30, height: 30, borderRadius: 15, background: COLORS.panel2, border: "none", color: COLORS.text, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Minus size={14} /></button>
+                                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: COLORS.text, minWidth: 18, textAlign: "center" }}>{enCarrito}</span>
+                                  <button onClick={() => agregar(p)} style={{ width: 30, height: 30, borderRadius: 15, background: COLORS.accent, border: "none", color: "#16181B", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}><Plus size={14} /></button>
+                                </div>
+                              ) : (
+                                <button onClick={() => agregar(p)} style={{
+                                  width: 42, height: 42, borderRadius: 21, flexShrink: 0,
+                                  background: COLORS.accent, color: "#16181B", border: "none", cursor: "pointer",
+                                  display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 16px rgba(255,107,74,.35)",
+                                }}><Plus size={20} strokeWidth={2.5} /></button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    ));
+                  })()}
                   {productos.filter((p) => p.localId === localElegido.id && p.disponible).length === 0 && (
                     <div style={{ color: COLORS.grey, fontFamily: "'Inter', sans-serif", fontSize: 13 }}>Este local todavía no tiene productos cargados.</div>
                   )}
